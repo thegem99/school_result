@@ -124,13 +124,13 @@ def view():
 
     START_ROLL = 2600001
     MAX_FAILS = 5
-    MAX_LIMIT = 5000
+    MAX_LIMIT = 500
 
     results = []
     fail_count = 0
     current_roll = START_ROLL
 
-    with ThreadPoolExecutor(max_workers=40) as executor:
+    with ThreadPoolExecutor(max_workers=100) as executor:
         futures = {}
 
         while fail_count < MAX_FAILS and current_roll < START_ROLL + MAX_LIMIT:
