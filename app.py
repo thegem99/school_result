@@ -15,7 +15,7 @@ def fetch_result(roll_code, roll_no):
     params = {"roll_code": roll_code, "roll_no": roll_no}
     headers = {"User-Agent": "Mozilla/5.0"}
 
-    for attempt in range(5):
+    for attempt in range(2):
         try:
             response = requests.get(API_URL, params=params, headers=headers, timeout=12)
             if response.status_code == 200:
@@ -135,7 +135,7 @@ def view():
 
     START_ROLL = 2600001
     MAX_FAILS = 5
-    MAX_LIMIT = 100
+    MAX_LIMIT = 500
     BATCH_SIZE = 100
 
     results = []
