@@ -135,7 +135,7 @@ def view():
 
     START_ROLL = 2600001
     MAX_FAILS = 5
-    MAX_LIMIT = 500
+    MAX_LIMIT = 100
     BATCH_SIZE = 100
 
     results = []
