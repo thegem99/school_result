@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 app = Flask(__name__)
 
-API_URL = "https://resultapi.biharboardonline.org/result"
+API_URL = "https://examapi.biharboardonline.org/result"
 CACHE = {}
 SUBJECT_LIST = ["HINDI", "SANSKRIT", "MATHEMATICS", "SCIENCE", "SOCIAL SCIENCE", "ENGLISH"]
 
