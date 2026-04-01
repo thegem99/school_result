@@ -2,9 +2,6 @@ from flask import Flask, request, render_template_string, Response
 import requests
 import os
 import time
-from io import BytesIO
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 app = Flask(__name__)
@@ -13,17 +10,21 @@ API_URL = "https://examapi.biharboardonline.org/result"
 CACHE = {}
 SUBJECT_LIST = ["HINDI", "SANSKRIT", "MATHEMATICS", "SCIENCE", "SOCIAL SCIENCE", "ENGLISH"]
 
+# ---------------- FETCH FUNCTION ----------------
 def fetch_result(roll_code, roll_no):
     params = {"roll_code": roll_code, "roll_no": roll_no}
     headers = {"User-Agent": "Mozilla/5.0"}
+
     for attempt in range(5):
         try:
             response = requests.get(API_URL, params=params, headers=headers, timeout=12)
             if response.status_code == 200:
                 json_data = response.json()
+
                 if json_data.get("success") and json_data.get("data"):
                     d = json_data["data"]
                     sub_map = {s["sub_name"]: s["sub_total"] for s in d.get("subjects", [])}
+
                     return {
                         "name": d.get("name"),
                         "father": d.get("father_name"),
@@ -34,10 +35,21 @@ def fetch_result(roll_code, roll_no):
                         "subjects": sub_map,
                         "status": "Success"
                     }
-                else: break 
-        except Exception: time.sleep(0.3)
-    return {"name": "NOT FOUND", "roll_no": str(roll_no), "total": 0, "division": "FAIL", "subjects": {}, "status": "Failed"}
+                else:
+                    break
+        except Exception:
+            time.sleep(0.3)
 
+    return {
+        "name": "NOT FOUND",
+        "roll_no": str(roll_no),
+        "total": 0,
+        "division": "FAIL",
+        "subjects": {},
+        "status": "Failed"
+    }
+
+# ---------------- HTML TEMPLATE ----------------
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -53,11 +65,9 @@ body { margin:0; font-family:'Inter', sans-serif; background:var(--bg); color:wh
 .stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:20px; margin-bottom:30px; }
 .stat-box { background:var(--card); padding:20px; border-radius:15px; border-left:5px solid var(--accent); }
 table { width:100%; border-collapse:collapse; font-size:14px; }
-th { background:#252538; padding:15px; color:var(--accent); cursor:pointer; }
+th { background:#252538; padding:15px; color:var(--accent); }
 td { padding:12px; text-align:center; border-bottom:1px solid #2d2d3f; }
 .topper-row { background:rgba(255,215,0,0.1)!important; border-left:4px solid gold; }
-.badge { padding:4px 8px; border-radius:4px; font-size:11px; font-weight:bold; }
-.badge-1st { background:#27ae60; } .badge-2nd { background:#f39c12; } .badge-fail { background:#e74c3c; }
 input,button { width:100%; padding:12px; margin:10px 0; border-radius:8px; border:none; }
 input { background:#2d2d3f; color:white; }
 button { background:linear-gradient(to right,var(--secondary),var(--primary)); color:white; font-weight:bold; cursor:pointer; }
@@ -114,6 +124,7 @@ button { background:linear-gradient(to right,var(--secondary),var(--primary)); c
 </html>
 """
 
+# ---------------- ROUTES ----------------
 @app.route("/")
 def home():
     return render_template_string(HTML_TEMPLATE, page='home')
@@ -125,28 +136,52 @@ def view():
     START_ROLL = 2600001
     MAX_FAILS = 5
     MAX_LIMIT = 500
+    BATCH_SIZE = 100
 
     results = []
     fail_count = 0
     current_roll = START_ROLL
 
     with ThreadPoolExecutor(max_workers=100) as executor:
-        futures = {}
 
         while fail_count < MAX_FAILS and current_roll < START_ROLL + MAX_LIMIT:
-            rn = str(current_roll)
-            futures[executor.submit(fetch_result, rollcode, rn)] = rn
-            current_roll += 1
 
-        for future in as_completed(futures):
-            res = future.result()
-            results.append(res)
+            batch_futures = {}
 
-            if res["status"] == "Failed":
-                fail_count += 1
-            else:
-                fail_count = 0
+            # 🔹 Submit batch
+            for _ in range(BATCH_SIZE):
+                if current_roll >= START_ROLL + MAX_LIMIT:
+                    break
 
+                rn = str(current_roll)
+                future = executor.submit(fetch_result, rollcode, rn)
+                batch_futures[future] = rn
+                current_roll += 1
+
+            # 🔹 Collect results
+            batch_results = []
+            for future in as_completed(batch_futures):
+                batch_results.append(future.result())
+
+            # 🔹 Sort for true sequential fail detection
+            batch_results.sort(key=lambda x: int(x["roll_no"]))
+
+            for res in batch_results:
+                results.append(res)
+
+                if res["status"] == "Failed":
+                    fail_count += 1
+                else:
+                    fail_count = 0
+
+                # 🚀 Stop early
+                if fail_count >= MAX_FAILS:
+                    break
+
+            if fail_count >= MAX_FAILS:
+                break
+
+    # ---------------- STATS ----------------
     results.sort(key=lambda x: int(x["roll_no"]))
 
     valid_results = [r for r in results if r['status'] == 'Success']
@@ -155,19 +190,38 @@ def view():
     div1 = len([r for r in valid_results if "1ST" in r['division'].upper()])
     pass_pct = round((passed / len(results)) * 100, 1) if results else 0
 
-    stats = {"top_score": top_score, "pass_pct": pass_pct, "div1": div1}
+    stats = {
+        "top_score": top_score,
+        "pass_pct": pass_pct,
+        "div1": div1
+    }
+
     CACHE["last_results"] = results
 
-    return render_template_string(HTML_TEMPLATE, page='view', results=results, subjects=SUBJECT_LIST, rollcode=rollcode, stats=stats)
+    return render_template_string(
+        HTML_TEMPLATE,
+        page='view',
+        results=results,
+        subjects=SUBJECT_LIST,
+        rollcode=rollcode,
+        stats=stats
+    )
 
 @app.route("/download/csv")
 def download_csv():
     data = CACHE.get("last_results", [])
+
     def generate():
         yield "Roll,Name,Total,Division\n"
         for r in data:
             yield f"{r['roll_no']},{r['name']},{r['total']},{r['division']}\n"
-    return Response(generate(), mimetype="text/csv", headers={"Content-Disposition":"attachment; filename=analysis.csv"})
 
+    return Response(
+        generate(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=analysis.csv"}
+    )
+
+# ---------------- RUN ----------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
